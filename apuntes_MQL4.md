@@ -142,3 +142,283 @@ void OnStart()
     Alert("Años con rally: " + rally + " Años totales: " + total);  
   }
 ```
+
+## Indicadores
+
+creamos un indicador dando clic derecho sobre el panel de indicadores, luego crear en metaeditor
+- onCalculate singinifica extrae los precios de la grafica
+- ontimer solo funciona durante una cierta hora
+- el indicador puede estar en ventana separada o sobre el grafico
+- el indicador puede tener maximos y minimos para dar señales por ejemplo
+
+```c++
+//Bars tiene propiedades, el cual indica el simbolo y el periodo: period_curren utiliza el periodo del chart
+for(int i = 0; i < Bars(Symbol(),PERIOD_CURRENT); i++){
+   
+      int tendencia = 0;
+      
+      if(Close[i] > Open[i]){
+         tendencia = tendencia + 1; 
+      }
+      
+      if(Close[i] < Open[i]){
+         tendencia = tendencia - 1;
+      }
+      //iRSI(const string symbol, int timeframe, int period, ENUM_APPIED_PRICE aplied_price, int shift)
+      if(iRSI(NULL,0,14,0,i) > 50){ 
+         tendencia = tendencia + 1;
+      }else{
+         tendencia = tendencia - 1;
+      }
+      if(iClose(NULL,43200,i) > iOpen(NULL,43200,i)){
+         tendencia = tendencia + 1;
+      }else{
+         tendencia = tendencia - 1;
+      }
+      
+      if(iRSI(NULL,1440,2,0,i) > 70){
+         tendencia = tendencia + 1;
+      }
+      if(iRSI(NULL,1440,2,0,i) < 30){
+         tendencia = tendencia - 1;
+      }
+      
+      if(iMomentum(NULL,0,10,0,1) > iMomentum(NULL,0,21,0,i)){
+         tendencia = tendencia + 1;
+      }else{
+         tendencia = tendencia - 1;
+      }
+      
+      datosBuffer[i] = tendencia;
+      
+    }
+```
+otro indicador
+
+```c++
+for(int i=0;i<Bars(Symbol(),PERIOD_CURRENT);i++){
+      datoBuffer[i] = MathAbs( iMomentum(NULL,0,10,0,i) - iMomentum(NULL,0,21,0,i) );
+   }
+```
+
+## Asesor Experto en MQL4
+Al abrir un editor de este tipo nos encontramos con tres estructuras en el codigo: 
+- int OnInit() lo que hará al inicio
+- void OnDeInit(const int reason) lo que hara al terminar la ejecucion
+- void OnTick() lo que hara vela por vela
+los parametros externos son los inputs: 
+- magic number: identificador unico de cada sistema
+- SL stop loss
+- TP take profit
+- lots lotaje
+- filter otro parametro que se quiera introducir
+- filtera comentario personalizado
+
+primeramente definimos los inputs mas importantes:
+```c++
+#property copyright "Copyright 2020, MetaQuotes Software Corp."
+#property link      "https://www.mql5.com"
+#property version   "1.00"
+#property strict
+
+input int magic = 10; //siempre es int
+input double lots = 0.01; //los lotes son decimales
+input double SL = 3; //se calcula de acuerdo a la volatilidad
+input double TP = 3; 
+
+// para calcular los TP y los SL normalmente se hace 
+// Cierre + (Volatilidad * TP) para un take profit
+// Cierre - (Volatilidad * SL) en el caso de una compra 
+```
+luego definimos las funciones
+
+```c++
+void OnDeinit(const int reason)
+  {
+//---
+   
+  }
+  
+  bool compra(){
+      if(iRSI(NULL,0,14,0,1)>50 && iMomentum(NULL,0,21,0,1)> 100){
+         return True;
+      }else{
+         return False;
+      }
+  }
+  
+  bool venta(){
+      if(iRSI(NULL,0,14,0,1)>90 && iMACD(NULL,0,12,26,9,0,0,1)>0){
+         return True;
+      }else{
+         return False;
+      }
+  
+  }
+``` 
+en void onStick() se debe definir primeramente si existen operaciones abiertas
+```c++
+void OnTick()
+  {
+//---
+   //Comprobar que no existan operaciones abiertas con el mismo identificador, una operacion por sistema
+   bool trade = True;
+   //el contador se movera por cada orden abierta
+   for(int i=0;OrdersTotal();i++){ 
+      //el indice = i porque es lo que esta dando vueltas
+      //select by pos = seleccionar por posicion
+      //mode_trades = modo operaciones
+      //este seleccionara la orden
+      int order = OrderSelect(i,SELECT_BY_POS,MODE_TRADES);
+      if(OrderMagicNumber()== magic && OrderSymbol() == Symbol()){
+         trade = False;
+         break; //rompemos el bucle si cumple la condicion
+      } 
+   }
+   
+   if(trade == True && Hour()==11){
+      if(compra()==True){
+         //ordersend= simbolo=actual=Null, tipo de orden =OP buy= compra,volumen=lots, precio= ask(compramos caro vendemos el barato)
+         //slippage=10 puntos significa 1 pip, double SL= Open[0]-(iATR(NULL,0,21,1)*SL),Take profit = Open[0]+(iATR(NULL,0,21,1)*TP),
+         //comentario = "mi EA de prueba",int magig number = magic, datetime=0 sin explicacion,color arrow= clrGreen) 
+         int compra = OrderSend(NULL,OP_BUY,lots,Ask,10,Open[0]-(iATR(NULL,0,21,1)* SL),Open[0]+(iATR(NULL,0,21,1)*TP),"mi primer EA",magic,0,clrGreen);
+      }
+      if(venta()==True){
+         int venta = OrderSend(NULL,OP_SELL,lots,Bid,10,Open[0]+(iATR(NULL,0,21,1)*SL), Open[0]-(iATR(NULL,0,21,1)*TP),"Mi EA de prueba",magic,0,clrGreen);
+      }      
+   
+   }
+    //Para hacer una salia manual
+   if( trade == False){
+      for(int i=0;i<OrdersTotal();i++){
+         int os = OrderSelect(i,SELECT_BY_POS,MODE_TRADES);
+         if(OrderMagicNumber() == magic && OrderSymbol() == Symbol() && Hour()==12){
+            
+            if(OrderType() == OP_BUY){
+               int cierrelargos = OrderClose(OrderTicket(),OrderLots(),Bid,10,clrAliceBlue);
+            }
+            if(OrderType() == OP_SELL){
+               int cierrecortos = OrderClose(OrderTicket(),OrderLots(),Ask,10,clrAliceBlue);
+            }
+         }
+      }
+   }
+
+  }
+```
+Este codigo nos servira como estructura mas adelante, sin embargo ya se puede probar la estrategia en MT4 y ver sus distintas funcionalidades. 
+haciendo algunos ajustes mas, podetemos tener la plantilla que nos servira mas adelante:
+```c++
+//+------------------------------------------------------------------+
+//|                                                 primeraclase.mq4 |
+//|                        Copyright 2020, MetaQuotes Software Corp. |
+//|                                             https://www.mql5.com |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2020, MetaQuotes Software Corp."
+#property link      "https://www.mql5.com"
+#property version   "1.00"
+#property strict
+
+input int magic = 10; //siempre es int
+input double lots = 0.01; //los lotes son decimales
+input double SL = 3; //se calcula de acuerdo a la volatilidad
+input double TP = 3;
+input int opt_hora_apertura = 10;
+input int opt_numero_velas = 0;
+double open = 0;
+  
+
+// para calcular los TP y los SL normalmente se hace 
+// Cierre + (Volatilidad * TP) para un take profit
+// Cierre - (Volatilidad * SL) en el caso de una compra 
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+//---
+   
+//---
+   return(INIT_SUCCEEDED);
+  }
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+//---
+   
+  }
+  
+  bool compra(){
+      if(1==1){
+         return True;
+      }else{
+         return False;
+      }
+  }
+  
+  bool venta(){
+      if(1==1){
+         return True;
+      }else{
+         return False;
+      }
+  
+  }
+  
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+//---
+   //Comprobar que no existan operaciones abiertas con el mismo identificador, una operacion por sistema
+   bool trade = True;
+   //el contador se movera por cada orden abierta
+   for(int i=0;OrdersTotal();i++){ 
+      //el indice = i porque es lo que esta dando vueltas
+      //select by pos = seleccionar por posicion
+      //mode_trades = modo operaciones
+      //este seleccionara la orden
+      int order = OrderSelect(i,SELECT_BY_POS,MODE_TRADES);
+      if(OrderMagicNumber()== magic && OrderSymbol() == Symbol()){
+         trade = False;
+         break; //rompemos el bucle si cumple la condicion
+      } 
+   }
+   
+   if(trade == True && Hour()==opt_hora_apertura){
+      if(compra()==True){
+         //ordersend= simbolo=actual=Null, tipo de orden =OP buy= compra,volumen=lots, precio= ask(compramos caro vendemos el barato)
+         //slippage=10 puntos significa 1 pip, double SL= Open[0]-(iATR(NULL,0,21,1)*SL),Take profit = Open[0]+(iATR(NULL,0,21,1)*TP),
+         //comentario = "mi EA de prueba",int magig number = magic, datetime=0 sin explicacion,color arrow= clrGreen) 
+         int compra = OrderSend(NULL,OP_BUY,lots,Ask,10,Open[0]-(iATR(NULL,0,21,1)* SL),Open[0]+(iATR(NULL,0,21,1)*TP),"mi primer EA",magic,0,clrGreen);
+         open = Open[0];
+      }
+      if(venta()==True){
+         int venta = OrderSend(NULL,OP_SELL,lots,Bid,10,Open[0]+(iATR(NULL,0,21,1)*SL), Open[0]-(iATR(NULL,0,21,1)*TP),"Mi EA de prueba",magic,0,clrGreen);
+         open = Open[0];
+      }      
+   
+   }
+   
+   if( trade == False){
+      for(int i=0;i<OrdersTotal();i++){
+         int os = OrderSelect(i,SELECT_BY_POS,MODE_TRADES);
+         if(OrderMagicNumber() == magic && OrderSymbol() == Symbol() && Open[opt_numero_velas]==open){
+            
+            if(OrderType() == OP_BUY){
+               int cierrelargos = OrderClose(OrderTicket(),OrderLots(),Bid,10,clrAliceBlue);
+            }
+            if(OrderType() == OP_SELL){
+               int cierrecortos = OrderClose(OrderTicket(),OrderLots(),Ask,10,clrAliceBlue);
+            }
+         }
+      }
+   }
+
+  }
+//+------------------------------------------------------------------+
+```
